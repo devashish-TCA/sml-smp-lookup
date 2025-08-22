@@ -1,0 +1,81 @@
+{
+  "queries": {
+    "error_analysis": {
+      "name": "Error Analysis and Trends",
+      "query": "fields @timestamp, level, message, correlationId, errorCode, errorCategory, participantId\n| filter level = \"ERROR\"\n| stats count() by errorCategory, errorCode\n| sort count desc",
+      "description": "Analyze error patterns and frequency by category and code"
+    },
+    "performance_analysis": {
+      "name": "Performance Analysis",
+      "query": "fields @timestamp, correlationId, smlLookupTime, smpQueryTime, certificateValidationTime, totalProcessingTime\n| filter ispresent(totalProcessingTime)\n| stats avg(smlLookupTime), avg(smpQueryTime), avg(certificateValidationTime), avg(totalProcessingTime), max(totalProcessingTime), count() by bin(5m)",
+      "description": "Analyze performance metrics over time with 5-minute bins"
+    },
+    "peppol_commons_usage": {
+      "name": "Peppol-Commons Library Usage",
+      "query": "fields @timestamp, correlationId, peppolCommonsOperation, peppolCommonsResult, peppolCommonsTime\n| filter ispresent(peppolCommonsOperation)\n| stats count() by peppolCommonsOperation, peppolCommonsResult\n| sort count desc",
+      "description": "Track peppol-commons library usage and success rates"
+    },
+    "security_events": {
+      "name": "Security Events Analysis",
+      "query": "fields @timestamp, level, message, correlationId, securityEvent, sourceIp, userAgent\n| filter ispresent(securityEvent)\n| stats count() by securityEvent, sourceIp\n| sort count desc",
+      "description": "Analyze security events and potential threats"
+    },
+    "certificate_expiry_tracking": {
+      "name": "Certificate Expiry Tracking",
+      "query": "fields @timestamp, correlationId, certificateSubject, certificateExpiry, daysUntilExpiry\n| filter ispresent(daysUntilExpiry) and daysUntilExpiry <= 30\n| sort daysUntilExpiry asc",
+      "description": "Track certificates expiring within 30 days"
+    },
+    "external_service_health": {
+      "name": "External Service Health",
+      "query": "fields @timestamp, correlationId, externalService, responseTime, statusCode, circuitBreakerState\n| filter ispresent(externalService)\n| stats avg(responseTime), count() by externalService, statusCode, bin(5m)\n| sort @timestamp desc",
+      "description": "Monitor external service health and response times"
+    },
+    "validation_failures": {
+      "name": "Validation Failure Analysis",
+      "query": "fields @timestamp, correlationId, validationType, validationResult, failureReason, participantId\n| filter validationResult = \"FAILED\"\n| stats count() by validationType, failureReason\n| sort count desc",
+      "description": "Analyze validation failures by type and reason"
+    },
+    "circuit_breaker_events": {
+      "name": "Circuit Breaker Events",
+      "query": "fields @timestamp, correlationId, circuitBreakerService, circuitBreakerState, failureCount\n| filter ispresent(circuitBreakerState)\n| stats count() by circuitBreakerService, circuitBreakerState, bin(1h)\n| sort @timestamp desc",
+      "description": "Track circuit breaker state changes and service health"
+    },
+    "cache_performance": {
+      "name": "Cache Performance Analysis",
+      "query": "fields @timestamp, correlationId, cacheOperation, cacheKey, cacheHit, cacheSize\n| filter ispresent(cacheOperation)\n| stats count() by cacheOperation, cacheHit, bin(5m)\n| sort @timestamp desc",
+      "description": "Analyze cache hit rates and performance"
+    },
+    "compliance_violations": {
+      "name": "Peppol Compliance Violations",
+      "query": "fields @timestamp, correlationId, complianceCheck, complianceResult, violationDetails, participantId\n| filter complianceResult = \"NON_COMPLIANT\"\n| stats count() by complianceCheck, violationDetails\n| sort count desc",
+      "description": "Track Peppol compliance violations and patterns"
+    },
+    "request_correlation": {
+      "name": "Request Correlation Analysis",
+      "query": "fields @timestamp, correlationId, requestId, participantId, documentType, environment, success\n| filter ispresent(correlationId)\n| sort @timestamp desc\n| limit 100",
+      "description": "Correlate requests across the entire processing pipeline"
+    },
+    "memory_usage_patterns": {
+      "name": "Memory Usage Patterns",
+      "query": "fields @timestamp, correlationId, memoryUsed, memoryTotal, memoryUtilization, gcEvents\n| filter ispresent(memoryUtilization)\n| stats avg(memoryUtilization), max(memoryUtilization), count() by bin(5m)\n| sort @timestamp desc",
+      "description": "Analyze memory usage patterns and garbage collection events"
+    }
+  },
+  "saved_queries": [
+    {
+      "name": "Daily Error Summary",
+      "query": "fields @timestamp, errorCode, errorCategory, message\n| filter level = \"ERROR\"\n| stats count() by errorCategory, errorCode\n| sort count desc",
+      "schedule": "daily"
+    },
+    {
+      "name": "Weekly Performance Report",
+      "query": "fields @timestamp, totalProcessingTime, smlLookupTime, smpQueryTime\n| filter ispresent(totalProcessingTime)\n| stats avg(totalProcessingTime), p50(totalProcessingTime), p95(totalProcessingTime), p99(totalProcessingTime) by bin(1d)",
+      "schedule": "weekly"
+    },
+    {
+      "name": "Certificate Expiry Report",
+      "query": "fields @timestamp, certificateSubject, daysUntilExpiry\n| filter ispresent(daysUntilExpiry) and daysUntilExpiry <= 30\n| sort daysUntilExpiry asc",
+      "schedule": "daily"
+    }
+  ]
+}

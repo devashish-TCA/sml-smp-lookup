@@ -1,0 +1,283 @@
+# Escalation Procedures and Notification Channels
+# Defines incident response procedures and notification routing
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Escalation Procedures and Notification Channels for Peppol SML/SMP Lookup Service'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment (dev, test, production)
+    AllowedValues: [dev, test, production]
+    Default: production
+  
+  PrimaryOncallEmail:
+    Type: String
+    Description: Primary on-call engineer email
+    Default: oncall-primary@yourcompany.com
+  
+  SecondaryOncallEmail:
+    Type: String
+    Description: Secondary on-call engineer email
+    Default: oncall-secondary@yourcompany.com
+  
+  ManagerEmail:
+    Type: String
+    Description: Engineering manager email
+    Default: engineering-manager@yourcompany.com
+  
+  PagerDutyIntegrationKey:
+    Type: String
+    Description: PagerDuty integration key
+    NoEcho: true
+
+Resources:
+  # Primary Notification Topic (Immediate Response Required)
+  CriticalAlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "peppol-lookup-${Environment}-critical"
+      DisplayName: !Sub "Peppol Lookup Critical Alarms - ${Environment}"
+
+  # Secondary Notification Topic (Standard Response)
+  StandardAlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "peppol-lookup-${Environment}-standard"
+      DisplayName: !Sub "Peppol Lookup Standard Alarms - ${Environment}"
+
+  # Warning Notification Topic (Informational)
+  WarningAlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "peppol-lookup-${Environment}-warning"
+      DisplayName: !Sub "Peppol Lookup Warning Alarms - ${Environment}"
+
+  # Primary On-Call Subscription (Critical)
+  PrimaryOncallCritical:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref CriticalAlarmTopic
+      Endpoint: !Ref PrimaryOncallEmail
+
+  # Secondary On-Call Subscription (Critical - Delayed)
+  SecondaryOncallCritical:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref CriticalAlarmTopic
+      Endpoint: !Ref SecondaryOncallEmail
+
+  # Manager Subscription (All Levels)
+  ManagerSubscriptionCritical:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref CriticalAlarmTopic
+      Endpoint: !Ref ManagerEmail
+
+  ManagerSubscriptionStandard:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      TopicArn: !Ref StandardAlarmTopic
+      Endpoint: !Ref ManagerEmail
+
+  # PagerDuty Integration Lambda
+  PagerDutyIntegrationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "peppol-lookup-${Environment}-pagerduty"
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt PagerDutyRole.Arn
+      Environment:
+        Variables:
+          PAGERDUTY_INTEGRATION_KEY: !Ref PagerDutyIntegrationKey
+          ENVIRONMENT: !Ref Environment
+      Code:
+        ZipFile: |
+          import json
+          import urllib3
+          import os
+          from datetime import datetime
+          
+          def lambda_handler(event, context):
+              integration_key = os.environ['PAGERDUTY_INTEGRATION_KEY']
+              environment = os.environ['ENVIRONMENT']
+              
+              for record in event['Records']:
+                  message = json.loads(record['Sns']['Message'])
+                  
+                  # Determine severity based on alarm name and state
+                  severity = determine_severity(message['AlarmName'], message['NewStateValue'])
+                  
+                  pagerduty_event = {
+                      "routing_key": integration_key,
+                      "event_action": "trigger" if message['NewStateValue'] == 'ALARM' else "resolve",
+                      "dedup_key": f"{message['AlarmName']}-{environment}",
+                      "payload": {
+                          "summary": f"Peppol Lookup Service Alert: {message['AlarmName']}",
+                          "source": f"peppol-lookup-{environment}",
+                          "severity": severity,
+                          "component": "peppol-sml-smp-lookup",
+                          "group": "peppol-services",
+                          "class": "lambda-function",
+                          "custom_details": {
+                              "alarm_name": message['AlarmName'],
+                              "alarm_description": message.get('AlarmDescription', ''),
+                              "new_state_reason": message['NewStateReason'],
+                              "state_change_time": message['StateChangeTime'],
+                              "environment": environment,
+                              "aws_region": message.get('Region', 'unknown'),
+                              "aws_account_id": message.get('AWSAccountId', 'unknown')
+                          }
+                      }
+                  }
+                  
+                  http = urllib3.PoolManager()
+                  response = http.request('POST', 'https://events.pagerduty.com/v2/enqueue',
+                                        body=json.dumps(pagerduty_event),
+                                        headers={'Content-Type': 'application/json'})
+              
+              return {'statusCode': 200}
+          
+          def determine_severity(alarm_name, state):
+              if state != 'ALARM':
+                  return 'info'
+              
+              critical_alarms = [
+                  'error-rate-high',
+                  'latency-high', 
+                  'security-events',
+                  'external-service-unavailable'
+              ]
+              
+              for critical in critical_alarms:
+                  if critical in alarm_name:
+                      return 'critical'
+              
+              return 'warning'
+
+  # IAM Role for PagerDuty Lambda
+  PagerDutyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  # PagerDuty Subscription to Critical Topic
+  PagerDutySubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: lambda
+      TopicArn: !Ref CriticalAlarmTopic
+      Endpoint: !GetAtt PagerDutyIntegrationFunction.Arn
+
+  # Permission for SNS to invoke PagerDuty Lambda
+  PagerDutyLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PagerDutyIntegrationFunction
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref CriticalAlarmTopic
+
+  # Escalation Timer Lambda (for delayed notifications)
+  EscalationTimerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "peppol-lookup-${Environment}-escalation-timer"
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt EscalationTimerRole.Arn
+      Environment:
+        Variables:
+          SECONDARY_TOPIC_ARN: !Ref CriticalAlarmTopic
+          ESCALATION_DELAY_MINUTES: "15"
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime, timedelta
+          
+          def lambda_handler(event, context):
+              # This function handles escalation timing
+              # In a real implementation, you would use EventBridge or Step Functions
+              # for more sophisticated escalation workflows
+              
+              sns = boto3.client('sns')
+              
+              for record in event['Records']:
+                  message = json.loads(record['Sns']['Message'])
+                  
+                  # Check if alarm is still in ALARM state after delay
+                  if message['NewStateValue'] == 'ALARM':
+                      escalation_message = {
+                          "AlarmName": f"ESCALATED: {message['AlarmName']}",
+                          "AlarmDescription": f"Escalated after 15 minutes: {message.get('AlarmDescription', '')}",
+                          "NewStateValue": "ALARM",
+                          "NewStateReason": f"Escalation: {message['NewStateReason']}",
+                          "StateChangeTime": datetime.utcnow().isoformat(),
+                          "OriginalAlarm": message
+                      }
+                      
+                      # Send escalation notification
+                      sns.publish(
+                          TopicArn=os.environ['SECONDARY_TOPIC_ARN'],
+                          Message=json.dumps(escalation_message),
+                          Subject=f"ESCALATED: Peppol Lookup Service Alert"
+                      )
+              
+              return {'statusCode': 200}
+
+  # IAM Role for Escalation Timer Lambda
+  EscalationTimerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SNSPublishPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref CriticalAlarmTopic
+
+Outputs:
+  CriticalAlarmTopicArn:
+    Description: ARN of the critical alarm SNS topic
+    Value: !Ref CriticalAlarmTopic
+    Export:
+      Name: !Sub "${AWS::StackName}-critical-topic"
+  
+  StandardAlarmTopicArn:
+    Description: ARN of the standard alarm SNS topic
+    Value: !Ref StandardAlarmTopic
+    Export:
+      Name: !Sub "${AWS::StackName}-standard-topic"
+  
+  WarningAlarmTopicArn:
+    Description: ARN of the warning alarm SNS topic
+    Value: !Ref WarningAlarmTopic
+    Export:
+      Name: !Sub "${AWS::StackName}-warning-topic"

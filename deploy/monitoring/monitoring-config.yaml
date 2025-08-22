@@ -1,0 +1,332 @@
+# Comprehensive Monitoring Configuration for Peppol SML/SMP Lookup Service
+# This file defines all monitoring parameters and thresholds
+
+monitoring:
+  # General Configuration
+  service_name: "peppol-sml-smp-lookup"
+  environments:
+    - dev
+    - test
+    - production
+  
+  # Performance Thresholds
+  performance:
+    error_rate_threshold: 5.0  # Percentage
+    latency_p99_threshold: 30000  # Milliseconds
+    memory_utilization_threshold: 85.0  # Percentage
+    cpu_utilization_threshold: 80.0  # Percentage
+    
+  # Business Metrics Thresholds
+  business:
+    certificate_expiry_warning_days: 30
+    certificate_expiry_critical_days: 7
+    external_service_availability_threshold: 95.0  # Percentage
+    validation_failure_rate_threshold: 10.0  # Percentage
+    
+  # Security Thresholds
+  security:
+    security_events_threshold: 0  # Any security event triggers alert
+    malicious_inputs_threshold: 5  # Per hour
+    xml_attack_attempts_threshold: 3  # Per hour
+    
+  # Peppol-Commons Specific Metrics
+  peppol_commons:
+    error_rate_threshold: 1.0  # Percentage
+    performance_degradation_threshold: 20.0  # Percentage slower than baseline
+    compatibility_test_failure_threshold: 0  # Any failure triggers alert
+    
+  # Alert Configurations
+  alerts:
+    critical:
+      - name: "error-rate-high"
+        description: "Error rate exceeds threshold"
+        metric: "Errors"
+        threshold: 5
+        comparison: "GreaterThanThreshold"
+        evaluation_periods: 1
+        period: 300
+        statistic: "Sum"
+        
+      - name: "latency-high"
+        description: "P99 latency exceeds threshold"
+        metric: "Duration"
+        threshold: 30000
+        comparison: "GreaterThanThreshold"
+        evaluation_periods: 2
+        period: 300
+        statistic: "p99"
+        
+      - name: "security-events"
+        description: "Security events detected"
+        metric: "SecurityEvents"
+        namespace: "Peppol/Lookup"
+        threshold: 0
+        comparison: "GreaterThanThreshold"
+        evaluation_periods: 1
+        period: 300
+        statistic: "Sum"
+        
+      - name: "external-service-unavailable"
+        description: "External services unavailable"
+        metric: "ExternalServiceAvailability"
+        namespace: "Peppol/Lookup"
+        threshold: 95
+        comparison: "LessThanThreshold"
+        evaluation_periods: 3
+        period: 300
+        statistic: "Average"
+        
+    warning:
+      - name: "certificate-expiry"
+        description: "Certificates expiring soon"
+        metric: "CertificateExpiringWithin30Days"
+        namespace: "Peppol/Lookup"
+        threshold: 0
+        comparison: "GreaterThanThreshold"
+        evaluation_periods: 1
+        period: 3600
+        statistic: "Maximum"
+        
+      - name: "memory-high"
+        description: "Memory utilization high"
+        metric: "MemoryUtilization"
+        namespace: "Peppol/Lookup"
+        threshold: 85
+        comparison: "GreaterThanThreshold"
+        evaluation_periods: 2
+        period: 300
+        statistic: "Average"
+        
+      - name: "circuit-breaker-open"
+        description: "Circuit breaker open"
+        metric: "CircuitBreakerOpen"
+        namespace: "Peppol/Lookup"
+        threshold: 0
+        comparison: "GreaterThanThreshold"
+        evaluation_periods: 1
+        period: 300
+        statistic: "Maximum"
+        
+      - name: "peppol-commons-errors"
+        description: "Peppol-commons library errors"
+        metric: "PeppolCommonsErrors"
+        namespace: "Peppol/Lookup"
+        threshold: 0
+        comparison: "GreaterThanThreshold"
+        evaluation_periods: 1
+        period: 300
+        statistic: "Sum"
+        
+  # Dashboard Configuration
+  dashboard:
+    widgets:
+      - type: "lambda_overview"
+        title: "Lambda Function Overview"
+        metrics:
+          - "AWS/Lambda.Invocations"
+          - "AWS/Lambda.Errors"
+          - "AWS/Lambda.Duration"
+        position: {x: 0, y: 0, width: 12, height: 6}
+        
+      - type: "business_metrics"
+        title: "Business Metrics"
+        metrics:
+          - "Peppol/Lookup.SuccessfulLookups"
+          - "Peppol/Lookup.FailedLookups"
+          - "Peppol/Lookup.ValidationFailures"
+        position: {x: 12, y: 0, width: 12, height: 6}
+        
+      - type: "performance_metrics"
+        title: "Performance Metrics"
+        metrics:
+          - "Peppol/Lookup.SmlLookupTime"
+          - "Peppol/Lookup.SmpQueryTime"
+          - "Peppol/Lookup.CertificateValidationTime"
+          - "Peppol/Lookup.XmlSignatureValidationTime"
+        position: {x: 0, y: 6, width: 8, height: 6}
+        
+      - type: "external_service_health"
+        title: "External Service Health"
+        metrics:
+          - "Peppol/Lookup.ExternalServiceAvailability"
+          - "Peppol/Lookup.CircuitBreakerOpen"
+          - "Peppol/Lookup.RetryAttempts"
+        position: {x: 8, y: 6, width: 8, height: 6}
+        
+      - type: "resource_utilization"
+        title: "Resource Utilization"
+        metrics:
+          - "Peppol/Lookup.MemoryUtilization"
+          - "Peppol/Lookup.CpuUtilization"
+          - "Peppol/Lookup.ConnectionPoolUtilization"
+        position: {x: 16, y: 6, width: 8, height: 6}
+        
+      - type: "peppol_commons_metrics"
+        title: "Peppol-Commons Library Metrics"
+        metrics:
+          - "Peppol/Lookup.PeppolCommonsIdentifierValidations"
+          - "Peppol/Lookup.PeppolCommonsSmpClientCalls"
+          - "Peppol/Lookup.PeppolCommonsCertificateValidations"
+          - "Peppol/Lookup.PeppolCommonsErrors"
+        position: {x: 0, y: 12, width: 12, height: 6}
+        
+      - type: "certificate_health"
+        title: "Certificate Health Metrics"
+        metrics:
+          - "Peppol/Lookup.CertificateExpiringWithin30Days"
+          - "Peppol/Lookup.CertificateExpiringWithin7Days"
+          - "Peppol/Lookup.RevokedCertificatesDetected"
+        position: {x: 12, y: 12, width: 12, height: 6}
+        
+      - type: "security_events"
+        title: "Security Events"
+        metrics:
+          - "Peppol/Lookup.SecurityEvents"
+          - "Peppol/Lookup.MaliciousInputsDetected"
+          - "Peppol/Lookup.XmlAttackAttempts"
+        position: {x: 0, y: 18, width: 8, height: 6}
+        
+      - type: "errors_by_category"
+        title: "Errors by Category"
+        metrics:
+          - "Peppol/Lookup.ErrorsByCategory.SML"
+          - "Peppol/Lookup.ErrorsByCategory.SMP"
+          - "Peppol/Lookup.ErrorsByCategory.CERTIFICATE"
+          - "Peppol/Lookup.ErrorsByCategory.NETWORK"
+          - "Peppol/Lookup.ErrorsByCategory.VALIDATION"
+        position: {x: 8, y: 18, width: 8, height: 6}
+        
+      - type: "cache_performance"
+        title: "Cache Performance"
+        metrics:
+          - "Peppol/Lookup.CacheHitRate"
+          - "Peppol/Lookup.CacheMissRate"
+          - "Peppol/Lookup.CacheEvictions"
+        position: {x: 16, y: 18, width: 8, height: 6}
+        
+      - type: "recent_errors_log"
+        title: "Recent Errors"
+        query: |
+          SOURCE '/aws/lambda/peppol-sml-smp-lookup'
+          | fields @timestamp, level, message, correlationId, participantId, errorCode
+          | filter level = "ERROR"
+          | sort @timestamp desc
+          | limit 100
+        position: {x: 0, y: 24, width: 24, height: 6}
+        
+  # Notification Configuration
+  notifications:
+    channels:
+      email:
+        enabled: true
+        addresses:
+          - "ops-team@yourcompany.com"
+          - "oncall-primary@yourcompany.com"
+          
+      slack:
+        enabled: true
+        webhook_url: "${SLACK_WEBHOOK_URL}"
+        channel: "#peppol-alerts"
+        
+      pagerduty:
+        enabled: true
+        integration_key: "${PAGERDUTY_INTEGRATION_KEY}"
+        service_name: "Peppol SML/SMP Lookup Service"
+        
+    escalation:
+      levels:
+        - name: "primary"
+          delay_minutes: 0
+          channels: ["email", "slack"]
+          
+        - name: "secondary"
+          delay_minutes: 15
+          channels: ["email", "pagerduty"]
+          
+        - name: "manager"
+          delay_minutes: 30
+          channels: ["email"]
+          
+  # Log Analysis Configuration
+  log_analysis:
+    retention_days: 30
+    
+    queries:
+      error_analysis:
+        name: "Error Analysis and Trends"
+        schedule: "daily"
+        query: |
+          fields @timestamp, level, message, correlationId, errorCode, errorCategory, participantId
+          | filter level = "ERROR"
+          | stats count() by errorCategory, errorCode
+          | sort count desc
+          
+      performance_analysis:
+        name: "Performance Analysis"
+        schedule: "hourly"
+        query: |
+          fields @timestamp, correlationId, smlLookupTime, smpQueryTime, certificateValidationTime, totalProcessingTime
+          | filter ispresent(totalProcessingTime)
+          | stats avg(smlLookupTime), avg(smpQueryTime), avg(certificateValidationTime), avg(totalProcessingTime), max(totalProcessingTime), count() by bin(5m)
+          
+      peppol_commons_usage:
+        name: "Peppol-Commons Library Usage"
+        schedule: "daily"
+        query: |
+          fields @timestamp, correlationId, peppolCommonsOperation, peppolCommonsResult, peppolCommonsTime
+          | filter ispresent(peppolCommonsOperation)
+          | stats count() by peppolCommonsOperation, peppolCommonsResult
+          | sort count desc
+          
+      security_events:
+        name: "Security Events Analysis"
+        schedule: "immediate"
+        query: |
+          fields @timestamp, level, message, correlationId, securityEvent, sourceIp, userAgent
+          | filter ispresent(securityEvent)
+          | stats count() by securityEvent, sourceIp
+          | sort count desc
+          
+      certificate_expiry:
+        name: "Certificate Expiry Tracking"
+        schedule: "daily"
+        query: |
+          fields @timestamp, correlationId, certificateSubject, certificateExpiry, daysUntilExpiry
+          | filter ispresent(daysUntilExpiry) and daysUntilExpiry <= 30
+          | sort daysUntilExpiry asc
+          
+  # Maintenance Configuration
+  maintenance:
+    schedules:
+      daily:
+        - "Review CloudWatch dashboard"
+        - "Check certificate expiry alerts"
+        - "Verify external service availability"
+        - "Review error logs"
+        - "Monitor peppol-commons performance"
+        
+      weekly:
+        - "Analyze performance trends"
+        - "Review security events"
+        - "Check for peppol-commons updates"
+        - "Validate backup procedures"
+        
+      monthly:
+        - "Security audit"
+        - "Performance baseline review"
+        - "Disaster recovery testing"
+        - "Certificate inventory"
+        - "Peppol-commons compatibility review"
+        
+    automation:
+      peppol_commons_monitoring:
+        script: "scripts/monitor-peppol-commons.sh"
+        schedule: "0 9 * * 1"  # Weekly on Monday at 9 AM
+        
+      certificate_check:
+        script: "scripts/check-certificates.sh"
+        schedule: "0 8 * * *"  # Daily at 8 AM
+        
+      performance_report:
+        script: "scripts/generate-performance-report.sh"
+        schedule: "0 18 * * 5"  # Weekly on Friday at 6 PM

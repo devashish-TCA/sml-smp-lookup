@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Console appender for Lambda with structured JSON logging -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+            <providers>
+                <timestamp>
+                    <fieldName>timestamp</fieldName>
+                    <pattern>yyyy-MM-dd'T'HH:mm:ss.SSSZ</pattern>
+                </timestamp>
+                <logLevel>
+                    <fieldName>level</fieldName>
+                </logLevel>
+                <loggerName>
+                    <fieldName>logger</fieldName>
+                </loggerName>
+                <mdc>
+                    <fieldName>context</fieldName>
+                </mdc>
+                <message>
+                    <fieldName>message</fieldName>
+                </message>
+                <arguments>
+                    <fieldName>arguments</fieldName>
+                </arguments>
+                <stackTrace>
+                    <fieldName>stackTrace</fieldName>
+                </stackTrace>
+                <pattern>
+                    <pattern>
+                        {
+                            "service": "peppol-sml-smp-lookup",
+                            "version": "${peppol.service.version:-1.0.0}",
+                            "environment": "${peppol.environment:-unknown}"
+                        }
+                    </pattern>
+                </pattern>
+            </providers>
+        </encoder>
+    </appender>
+
+    <!-- Root logger configuration -->
+    <root level="${peppol.logging.level:-INFO}">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+    <!-- Application-specific logger configurations -->
+    <logger name="com.yourcompany.peppol" level="${peppol.logging.level:-INFO}" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    
+    <!-- Structured event loggers -->
+    <logger name="com.yourcompany.peppol.security_event" level="INFO" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    
+    <logger name="com.yourcompany.peppol.performance_metric" level="INFO" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    
+    <logger name="com.yourcompany.peppol.error_event" level="ERROR" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    
+    <logger name="com.yourcompany.peppol.business_event" level="INFO" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    
+    <logger name="com.yourcompany.peppol.system_event" level="INFO" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    
+    <logger name="com.yourcompany.peppol.validation_event" level="INFO" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    
+    <logger name="com.yourcompany.peppol.external_service_call" level="INFO" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    
+    <logger name="com.yourcompany.peppol.cache_event" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    
+    <!-- External library logging levels -->
+    <logger name="org.apache.http" level="WARN"/>
+    <logger name="org.xbill.DNS" level="WARN"/>
+    <logger name="org.bouncycastle" level="WARN"/>
+    <logger name="org.apache.santuario" level="WARN"/>
+    <logger name="com.helger.peppol" level="INFO"/>
+    <logger name="com.helger.commons" level="WARN"/>
+    
+    <!-- AWS SDK logging -->
+    <logger name="software.amazon.awssdk" level="WARN"/>
+    <logger name="com.amazonaws" level="WARN"/>
+    
+    <!-- Circuit breaker logging -->
+    <logger name="io.github.resilience4j" level="INFO"/>
+    
+    <!-- HTTP client logging -->
+    <logger name="org.apache.hc.client5" level="WARN"/>
+    <logger name="org.apache.hc.core5" level="WARN"/>
+    
+    <!-- XML processing logging -->
+    <logger name="org.apache.xml" level="WARN"/>
+    <logger name="javax.xml" level="WARN"/>
+</configuration>
