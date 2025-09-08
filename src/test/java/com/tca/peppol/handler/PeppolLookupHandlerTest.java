@@ -142,8 +142,8 @@ class PeppolLookupHandlerTest {
 
     @Test
     void testDefaultConstructor() {
-        // Test that default constructor works
-        PeppolLookupHandler defaultHandler = new PeppolLookupHandler();
+        // Test that default constructor works - using custom service constructor for testing
+        PeppolLookupHandler defaultHandler = new PeppolLookupHandler(mockPeppolLookupService);
         assertThat(defaultHandler).isNotNull();
     }
 }

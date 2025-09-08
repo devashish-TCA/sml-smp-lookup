@@ -4,19 +4,14 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyRequestEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayProxyResponseEvent;
-import com.amazonaws.xray.AWSXRay;
-import com.amazonaws.xray.entities.Subsegment;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.tca.peppol.model.response.ValidationResults;
+import com.tca.peppol.dagger.ApplicationComponent;
+// import com.tca.peppol.dagger.DaggerApplicationComponent; // Will be available after Dagger generates the class
+import com.tca.peppol.service.PeppolLookupService;
 import com.tca.peppol.model.request.LookupRequest;
 import com.tca.peppol.model.response.LookupResponse;
-import com.tca.peppol.service.MetricsCollector;
-import com.tca.peppol.service.MetricsCollectorFactory;
-import com.tca.peppol.service.PeppolLookupService;
-import com.tca.peppol.util.CorrelationIdUtils;
-import com.tca.peppol.util.MetricsTimer;
-import com.tca.peppol.util.StructuredLogger;
+import com.tca.peppol.model.response.ValidationResults;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,10 +31,13 @@ import java.util.Map;
 public class PeppolLookupHandler implements RequestHandler<APIGatewayProxyRequestEvent, APIGatewayProxyResponseEvent> {
 
     private static final Logger logger = LoggerFactory.getLogger(PeppolLookupHandler.class);
+
+    // Dagger component - created once and reused
+    // private static final ApplicationComponent component = DaggerApplicationComponent.builder().build();
+    private static final ApplicationComponent component = null; // Will be initialized after Dagger generates the class
     
     private final ObjectMapper objectMapper;
     private final PeppolLookupService peppolLookupService;
-    private final MetricsCollector metricsCollector;
     
     // CORS headers for API Gateway
     private static final Map<String, String> CORS_HEADERS = Map.of(
@@ -50,60 +48,48 @@ public class PeppolLookupHandler implements RequestHandler<APIGatewayProxyReques
     );
 
     /**
-     * Default constructor - initializes services and JSON mapper
+     * Default constructor - gets dependencies from Dagger
      */
     public PeppolLookupHandler() {
-        this.objectMapper = new ObjectMapper();
-        this.objectMapper.registerModule(new JavaTimeModule());
-        this.metricsCollector = MetricsCollectorFactory.create(System.getenv("ENVIRONMENT"));
-        this.peppolLookupService = new PeppolLookupService(metricsCollector);
-        
-        logger.info("PeppolLookupHandler initialized successfully with X-Ray tracing");
+        this.objectMapper = component.objectMapper();
+        this.peppolLookupService = component.peppolLookupService();
+
+        logger.info("PeppolLookupHandler initialized with Dagger dependency injection");
     }
 
     /**
      * Constructor for testing with custom service
      */
     public PeppolLookupHandler(PeppolLookupService peppolLookupService) {
-        this.objectMapper = new ObjectMapper();
-        this.objectMapper.registerModule(new JavaTimeModule());
-        this.metricsCollector = MetricsCollectorFactory.createNoOp();
+        this.objectMapper = createObjectMapper();
         this.peppolLookupService = peppolLookupService;
 
         logger.info("PeppolLookupHandler initialized with custom service");
     }
-    
+
     /**
-     * Constructor for testing with custom service and metrics collector
+     * Creates and configures the ObjectMapper
      */
-    public PeppolLookupHandler(PeppolLookupService peppolLookupService, MetricsCollector metricsCollector) {
-        this.objectMapper = new ObjectMapper();
-        this.objectMapper.registerModule(new JavaTimeModule());
-        this.metricsCollector = metricsCollector;
-        this.peppolLookupService = peppolLookupService;
-        logger.info("PeppolLookupHandler initialized with custom service and metrics collector");
+    private static ObjectMapper createObjectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        return mapper;
     }
+
 
     @Override
     public APIGatewayProxyResponseEvent handleRequest(APIGatewayProxyRequestEvent input, Context context) {
         String lambdaRequestId = context.getAwsRequestId();
-        
-        // Set up correlation IDs for structured logging
-        String correlationId = CorrelationIdUtils.generateAndSetCorrelationId();
-        CorrelationIdUtils.setLambdaRequestId(lambdaRequestId);
-        
-        try {
+
             // Log request start with structured logging
-            Map<String, Object> requestDetails = new HashMap<>();
-            requestDetails.put("httpMethod", input.getHttpMethod());
-            requestDetails.put("path", input.getPath());
-            requestDetails.put("userAgent", input.getHeaders() != null ? input.getHeaders().get("User-Agent") : null);
-            
-            StructuredLogger.logBusinessEvent("Lambda request started", requestDetails);
+            logger.info("Lambda request started: method={}, path={}, userAgent={}",
+                    input.getHttpMethod(),
+                    input.getPath(),
+                    input.getHeaders() != null ? input.getHeaders().get("User-Agent") : "unknown");
 
             // Handle CORS preflight requests
             if ("OPTIONS".equals(input.getHttpMethod())) {
-                StructuredLogger.logBusinessEvent("CORS preflight request handled", Map.of("method", "OPTIONS"));
+                logger.info("CORS preflight request handled: method=OPTIONS");
                 return createResponse(200, null, CORS_HEADERS);
             }
 
@@ -111,106 +97,39 @@ public class PeppolLookupHandler implements RequestHandler<APIGatewayProxyReques
                 // Parse request
                 LookupRequest lookupRequest = parseRequest(input, lambdaRequestId);
                 if (lookupRequest == null) {
-                    Map<String, Object> errorDetails = new HashMap<>();
-                    errorDetails.put("errorType", "INVALID_REQUEST_FORMAT");
-                    errorDetails.put("httpMethod", input.getHttpMethod());
-                    
-                    StructuredLogger.logError("Invalid request format", null, errorDetails);
-
+                    logger.error("Invalid request format: errorType=INVALID_REQUEST_FORMAT, httpMethod={}", input.getHttpMethod());
                     return createErrorResponse(400, "Invalid request format", lambdaRequestId);
                 }
 
-                // Set request ID for correlation
-                CorrelationIdUtils.setRequestId(lookupRequest.getRequestId());
+                logger.info("Peppol lookup started: participantId={}, documentTypeId={}, processId={}, environment={}",
+                        lookupRequest.getParticipantId(),
+                        lookupRequest.getDocumentTypeId(),
+                        lookupRequest.getProcessId(),
+                        lookupRequest.getEnvironment());
 
-                // Log business event for lookup start
-                Map<String, Object> lookupDetails = new HashMap<>();
-                lookupDetails.put("participantId", lookupRequest.getParticipantId());
-                lookupDetails.put("documentTypeId", lookupRequest.getDocumentTypeId());
-                lookupDetails.put("processId", lookupRequest.getProcessId());
-                lookupDetails.put("environment", lookupRequest.getEnvironment());
-                
-                StructuredLogger.logBusinessEvent("Peppol lookup started", lookupDetails);
-
-                // Perform lookup with performance tracking and metrics
-                MetricsTimer timer = MetricsTimer.start(metricsCollector);
                 LookupResponse lookupResponse = peppolLookupService.performLookup(lookupRequest);
-                timer.stopAndRecordProcessingTime();
-                long processingTime = timer.getElapsedTime();
                 
                 lookupResponse.setRequestId(lambdaRequestId);
-
-                // Add validation results to X-Ray metadata
-                if (lookupResponse.getValidationResults() != null) {
-                    Map<String, Object> validationMetadata = createValidationMetadata(lookupResponse.getValidationResults());
-                }
-
-                // Log performance metrics
-                Map<String, Object> perfDetails = new HashMap<>();
-                perfDetails.put("participantId", lookupRequest.getParticipantId());
-                perfDetails.put("environment", lookupRequest.getEnvironment());
-                perfDetails.put("successful", lookupResponse.isSuccessful());
-                
-                StructuredLogger.logPerformanceMetric("Peppol lookup", processingTime, perfDetails);
-
-                // Record success/failure metrics
-                String errorCode = null;
-                String errorCategory = null;
-                
-                if (lookupResponse.isSuccessful()) {
-                    metricsCollector.recordSuccess();
-                } else {
-                    // Determine error category from response
-                    errorCategory = determineErrorCategory(lookupResponse);
-                    errorCode = determineErrorCode(lookupResponse);
-                    metricsCollector.recordFailure(errorCategory);
-                }
-                
-
-                // Record memory usage
-                metricsCollector.recordMemoryUsage();
-                
-                // Add CloudWatch metrics
-                addCloudWatchMetrics(context, lookupRequest, lookupResponse);
 
                 // Return response
                 int statusCode = lookupResponse.isSuccessful() ? 200 : 404;
 
                 String responseBody = objectMapper.writeValueAsString(lookupResponse);
-                
-                // Log completion
-                Map<String, Object> completionDetails = new HashMap<>();
-                completionDetails.put("participantId", lookupRequest.getParticipantId());
-                completionDetails.put("successful", lookupResponse.isSuccessful());
-                completionDetails.put("statusCode", statusCode);
-                completionDetails.put("processingTimeMs", processingTime);
-                
-                StructuredLogger.logBusinessEvent("Peppol lookup completed", completionDetails);
+
+                logger.info("Peppol lookup completed: participantId={}, successful={}, statusCode={}",
+                        lookupRequest.getParticipantId(),
+                        lookupResponse.isSuccessful(),
+                        statusCode);
                 
                 return createResponse(statusCode, responseBody, CORS_HEADERS);
 
             } catch (Exception e) {
-                Map<String, Object> errorDetails = new HashMap<>();
-                errorDetails.put("errorType", "PROCESSING_ERROR");
-                errorDetails.put("errorClass", e.getClass().getSimpleName());
-                
-                // Record failure metric
-                metricsCollector.recordFailure("SYSTEM");
-
-                
-                StructuredLogger.logError("Unexpected error processing request", e, errorDetails);
+                logger.error("Unexpected error processing request: errorType=PROCESSING_ERROR, errorClass={}",
+                        e.getClass().getSimpleName(), e);
                 return createErrorResponse(500, "Internal server error: " + e.getMessage(), lambdaRequestId);
                 
-            } finally {
-                AWSXRay.endSubsegment();
-                // Flush metrics before ending
-                metricsCollector.flushMetrics();
             }
-            
-        } finally {
-            // Clean up correlation IDs
-            CorrelationIdUtils.clearAll();
-        }
+
     }
 
     /**
@@ -239,8 +158,8 @@ public class PeppolLookupHandler implements RequestHandler<APIGatewayProxyReques
             
             // Set default environment if not provided
             if (request.getEnvironment() == null || request.getEnvironment().trim().isEmpty()) {
-                request.setEnvironment("production");
-                logger.debug("Using default environment 'production' for request: {}", requestId);
+                request.setEnvironment("dev");
+                logger.debug("Using default environment 'dev' for request: {}", requestId);
             }
 
             logger.debug("Successfully parsed request: {} - Participant: {} - Document Type: {} - Environment: {}", 
@@ -311,21 +230,7 @@ public class PeppolLookupHandler implements RequestHandler<APIGatewayProxyReques
         
         return metadata;
     }
-    
-    /**
-     * Adds CloudWatch custom metrics for monitoring
-     */
-    private void addCloudWatchMetrics(Context context, LookupRequest request, LookupResponse response) {
-        try {
-            // Add custom metrics here if needed
-            // For now, we'll rely on CloudWatch Logs and X-Ray tracing
-            logger.info("METRIC: ParticipantLookup - Success: {} - Time: {}ms - Environment: {}", 
-                       response.isSuccessful(), response.getTotalProcessingTimeMs(), request.getEnvironment());
-            
-        } catch (Exception e) {
-            logger.warn("Failed to add CloudWatch metrics", e);
-        }
-    }
+
 
     /**
      * Creates a standard API Gateway response

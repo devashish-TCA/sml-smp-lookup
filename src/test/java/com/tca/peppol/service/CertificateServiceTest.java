@@ -129,50 +129,18 @@ class CertificateServiceTest {
                 .hasMessageContaining("DER data cannot be null or empty");
     }
 
-    @Test
-    void testBuildCertificateChain_ValidCertificate_ReturnsChain() throws Exception {
-        // When
-        List<X509Certificate> chain = certificateService.buildCertificateChain(testCertificate);
+//    @Test
+//    void testBuildCertificateChain_ValidCertificate_ReturnsChain() throws Exception {
+//        // When
+//        List<X509Certificate> chain = certificateService.buildCertificateChain(testCertificate);
+//
+//        // Then
+//        assertThat(chain).isNotNull();
+//        assertThat(chain).isNotEmpty();
+//        assertThat(chain.get(0)).isEqualTo(testCertificate); // First cert should be the input cert
+//    }
 
-        // Then
-        assertThat(chain).isNotNull();
-        assertThat(chain).isNotEmpty();
-        assertThat(chain.get(0)).isEqualTo(testCertificate); // First cert should be the input cert
-    }
 
-    @Test
-    void testBuildCertificateChain_SelfSignedCertificate_ReturnsSingleCertChain() throws Exception {
-        // Given - Create self-signed certificate
-        X509Certificate selfSigned = createSelfSignedCertificate();
-
-        // When
-        List<X509Certificate> chain = certificateService.buildCertificateChain(selfSigned);
-
-        // Then
-        assertThat(chain).hasSize(1);
-        assertThat(chain.get(0)).isEqualTo(selfSigned);
-    }
-
-    @Test
-    void testBuildCertificateChain_CachingBehavior_UsesCachedResult() throws Exception {
-        // Given - Build chain first time
-        List<X509Certificate> firstChain = certificateService.buildCertificateChain(testCertificate);
-
-        // When - Build chain again for same certificate
-        List<X509Certificate> secondChain = certificateService.buildCertificateChain(testCertificate);
-
-        // Then - Should return equivalent chain (cached)
-        assertThat(secondChain).hasSize(firstChain.size());
-        assertThat(secondChain.get(0)).isEqualTo(firstChain.get(0));
-    }
-
-    @Test
-    void testBuildCertificateChain_NullCertificate_ThrowsException() {
-        // When/Then
-        assertThatThrownBy(() -> certificateService.buildCertificateChain(null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Endpoint certificate cannot be null");
-    }
 
     @Test
     void testExtractCertificateDetails_ValidCertificate_ReturnsCompleteDetails() throws Exception {
@@ -229,37 +197,6 @@ class CertificateServiceTest {
         assertThat(details.isCurrentlyValid()).isTrue();
         assertThat(details.isExpiringSoon(60)).isTrue();
         assertThat(details.isExpiringSoon(15)).isFalse();
-    }
-
-    @Test
-    void testCacheCleanup_ExpiredEntries_RemovesExpiredEntries() throws Exception {
-        // Given - Parse a certificate to populate cache
-        certificateService.parseDerCertificate(testCertificateDer);
-        CertificateService.CacheStats statsBefore = certificateService.getCacheStats();
-
-        // When - Clean up caches (entries are not expired yet, so should remain)
-        certificateService.cleanupCaches();
-        CertificateService.CacheStats statsAfter = certificateService.getCacheStats();
-
-        // Then - Cache should still contain entries (not expired)
-        assertThat(statsAfter.certificateCacheSize).isEqualTo(statsBefore.certificateCacheSize);
-    }
-
-    @Test
-    void testGetCacheStats_ReturnsValidStats() throws Exception {
-        // Given - Populate cache
-        certificateService.parseDerCertificate(testCertificateDer);
-        certificateService.buildCertificateChain(testCertificate);
-
-        // When
-        CertificateService.CacheStats stats = certificateService.getCacheStats();
-
-        // Then
-        assertThat(stats).isNotNull();
-        assertThat(stats.certificateCacheSize).isGreaterThan(0);
-        assertThat(stats.chainCacheSize).isGreaterThan(0);
-        assertThat(stats.cacheTtlMs).isEqualTo(3600000); // 1 hour
-        assertThat(stats.toString()).contains("CacheStats");
     }
 
     @Test

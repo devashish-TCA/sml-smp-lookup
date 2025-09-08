@@ -17,7 +17,6 @@ This service enables secure discovery of participant endpoints by performing:
 - **Peppol Compliant**: Full compliance with Peppol specifications and OpenPeppol CA requirements
 - **High Performance**: Optimized for AWS Lambda with SnapStart, connection pooling, and caching
 - **Comprehensive Monitoring**: CloudWatch metrics, X-Ray tracing, and structured logging
-- **Circuit Breaker Protection**: Resilient external service communication
 - **Test Coverage**: 90% code coverage target with comprehensive test suites
 
 ## Architecture

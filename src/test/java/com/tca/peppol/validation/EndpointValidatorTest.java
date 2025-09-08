@@ -7,7 +7,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
-import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.security.cert.X509Certificate;
@@ -159,15 +158,13 @@ class EndpointValidatorTest {
         String testUrl = "https://example.com/endpoint";
         HttpResponse mockResponse = new HttpResponse(200, "OK", null, Collections.emptyMap(), 100);
         
-        try (MockedStatic<SecureHttpClient> mockedStatic = mockStatic(SecureHttpClient.class)) {
-            mockedStatic.when(() -> SecureHttpClient.head(eq(testUrl), any()))
-                       .thenReturn(mockResponse);
-            
-            ValidationResult result = validator.testConnectivity(testUrl);
-            
-            assertTrue(result.isValid());
-            assertTrue(result.getMessage().contains("Endpoint is accessible (HTTP 200)"));
-        }
+        when(mockHttpClient.head(eq(testUrl), anyMap()))
+            .thenReturn(mockResponse);
+        
+        ValidationResult result = validator.testConnectivity(testUrl);
+        
+        assertTrue(result.isValid());
+        assertTrue(result.getMessage().contains("Endpoint is accessible (HTTP 200)"));
     }
     
     @Test
@@ -175,32 +172,28 @@ class EndpointValidatorTest {
         String testUrl = "https://example.com/endpoint";
         HttpResponse mockResponse = new HttpResponse(404, "Not Found", null, Collections.emptyMap(), 100);
         
-        try (MockedStatic<SecureHttpClient> mockedStatic = mockStatic(SecureHttpClient.class)) {
-            mockedStatic.when(() -> SecureHttpClient.head(eq(testUrl), any()))
-                       .thenReturn(mockResponse);
-            
-            ValidationResult result = validator.testConnectivity(testUrl);
-            
-            assertFalse(result.isValid());
-            assertEquals("E4001", result.getErrorCode());
-            assertTrue(result.getMessage().contains("returned HTTP 404"));
-        }
+        when(mockHttpClient.head(eq(testUrl), anyMap()))
+            .thenReturn(mockResponse);
+        
+        ValidationResult result = validator.testConnectivity(testUrl);
+        
+        assertFalse(result.isValid());
+        assertEquals("E4001", result.getErrorCode());
+        assertTrue(result.getMessage().contains("returned HTTP 404"));
     }
     
     @Test
     void testTestConnectivity_NetworkException() throws Exception {
         String testUrl = "https://example.com/endpoint";
         
-        try (MockedStatic<SecureHttpClient> mockedStatic = mockStatic(SecureHttpClient.class)) {
-            mockedStatic.when(() -> SecureHttpClient.head(eq(testUrl), any()))
-                       .thenThrow(new HttpClientException("Connection timeout"));
-            
-            ValidationResult result = validator.testConnectivity(testUrl);
-            
-            assertFalse(result.isValid());
-            assertEquals("E4002", result.getErrorCode());
-            assertTrue(result.getMessage().contains("Endpoint connectivity test failed"));
-        }
+        when(mockHttpClient.head(eq(testUrl), anyMap()))
+            .thenThrow(new HttpClientException("Connection timeout"));
+        
+        ValidationResult result = validator.testConnectivity(testUrl);
+        
+        assertFalse(result.isValid());
+        assertEquals("E4002", result.getErrorCode());
+        assertTrue(result.getMessage().contains("Endpoint connectivity test failed"));
     }
     
     @Test
@@ -242,15 +235,13 @@ class EndpointValidatorTest {
         String transportProfile = "peppol-transport-as4-v2_0";
         HttpResponse mockResponse = new HttpResponse(200, "OK", null, Collections.emptyMap(), 100);
         
-        try (MockedStatic<SecureHttpClient> mockedStatic = mockStatic(SecureHttpClient.class)) {
-            mockedStatic.when(() -> SecureHttpClient.head(eq(testUrl), any()))
-                       .thenReturn(mockResponse);
-            
-            ValidationResult result = validator.validateEndpoint(testUrl, transportProfile, null, true);
-            
-            assertTrue(result.isValid());
-            assertTrue(result.getMessage().contains("All endpoint validations passed"));
-        }
+        when(mockHttpClient.head(eq(testUrl), anyMap()))
+            .thenReturn(mockResponse);
+        
+        ValidationResult result = validator.validateEndpoint(testUrl, transportProfile, null, true);
+        
+        assertTrue(result.isValid());
+        assertTrue(result.getMessage().contains("All endpoint validations passed"));
     }
     
     @Test

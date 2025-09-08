@@ -1,18 +1,6 @@
 package com.tca.peppol.service;
 
-import com.helger.peppol.security.PeppolTrustStores;
 import com.tca.peppol.model.response.CertificateDetails;
-import org.bouncycastle.asn1.ASN1OctetString;
-import org.bouncycastle.asn1.ASN1Sequence;
-import org.bouncycastle.asn1.x509.AuthorityKeyIdentifier;
-import org.bouncycastle.asn1.x509.BasicConstraints;
-import org.bouncycastle.asn1.x509.CRLDistPoint;
-import org.bouncycastle.asn1.x509.DistributionPoint;
-import org.bouncycastle.asn1.x509.DistributionPointName;
-import org.bouncycastle.asn1.x509.Extension;
-import org.bouncycastle.asn1.x509.GeneralName;
-import org.bouncycastle.asn1.x509.GeneralNames;
-import org.bouncycastle.asn1.x509.SubjectKeyIdentifier;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.util.encoders.Hex;
 import org.slf4j.Logger;
@@ -31,76 +19,36 @@ import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 /**
- * Certificate processing service that leverages peppol-commons certificate utilities.
- * Provides certificate conversion, chain building, metadata extraction, and caching capabilities.
- * 
- * This service integrates with peppol-commons for Peppol-specific certificate handling while
- * adding Lambda-specific optimizations and comprehensive certificate processing capabilities.
+ * Simplified certificate processing service for Peppol lookup operations.
+ * Focuses on essential certificate operations needed for SML/SMP workflows:
+ * - DER to PEM conversion
+ * - Basic certificate parsing
+ * - Essential metadata extraction
+ * - Simple Peppol compliance checking
  */
 public class CertificateService {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(CertificateService.class);
-    
-    // Certificate cache with TTL (in milliseconds)
-    private static final long CACHE_TTL_MS = 3600000; // 1 hour
-    private final ConcurrentMap<String, CachedCertificate> certificateCache = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, CachedCertificateChain> chainCache = new ConcurrentHashMap<>();
-    
-    // Certificate factory for DER parsing
+    private static final Logger logger = LoggerFactory.getLogger(CertificateService.class);
+
     private final CertificateFactory certificateFactory;
-    
+
     /**
-     * Cached certificate entry with TTL
-     */
-    private static class CachedCertificate {
-        final X509Certificate certificate;
-        final long timestamp;
-        
-        CachedCertificate(X509Certificate certificate) {
-            this.certificate = certificate;
-            this.timestamp = System.currentTimeMillis();
-        }
-        
-        boolean isExpired() {
-            return System.currentTimeMillis() - timestamp > CACHE_TTL_MS;
-        }
-    }
-    
-    /**
-     * Cached certificate chain entry with TTL
-     */
-    private static class CachedCertificateChain {
-        final List<X509Certificate> chain;
-        final long timestamp;
-        
-        CachedCertificateChain(List<X509Certificate> chain) {
-            this.chain = new ArrayList<>(chain);
-            this.timestamp = System.currentTimeMillis();
-        }
-        
-        boolean isExpired() {
-            return System.currentTimeMillis() - timestamp > CACHE_TTL_MS;
-        }
-    }
-    
-    /**
-     * Initialize certificate service with certificate factory
+     * Initialize certificate service
      */
     public CertificateService() {
         try {
             this.certificateFactory = CertificateFactory.getInstance("X.509");
+            logger.debug("CertificateService initialized");
         } catch (CertificateException e) {
             throw new IllegalStateException("Failed to initialize X.509 certificate factory", e);
         }
     }
-    
+
     /**
      * Convert DER-encoded certificate data to PEM format
-     * 
+     *
      * @param derData DER-encoded certificate bytes
      * @return PEM-formatted certificate string
      * @throws CertificateException if conversion fails
@@ -110,30 +58,28 @@ public class CertificateService {
         if (derData == null || derData.length == 0) {
             throw new IllegalArgumentException("DER data cannot be null or empty");
         }
-        
+
         try {
-            // Parse DER data to X509Certificate
             X509Certificate certificate = parseDerCertificate(derData);
-            
-            // Convert to PEM format using BouncyCastle
+
             StringWriter stringWriter = new StringWriter();
             try (JcaPEMWriter pemWriter = new JcaPEMWriter(stringWriter)) {
                 pemWriter.writeObject(certificate);
             }
-            
+
             String pemString = stringWriter.toString();
-            LOGGER.debug("Successfully converted DER to PEM format, length: {} bytes", pemString.length());
-            
+            logger.debug("Successfully converted DER to PEM format, length: {} bytes", pemString.length());
+
             return pemString;
-            
+
         } catch (IOException e) {
             throw new CertificateException("Failed to convert DER to PEM format", e);
         }
     }
-    
+
     /**
      * Parse DER-encoded certificate data to X509Certificate
-     * 
+     *
      * @param derData DER-encoded certificate bytes
      * @return X509Certificate instance
      * @throws CertificateException if parsing fails
@@ -143,108 +89,30 @@ public class CertificateService {
         if (derData == null || derData.length == 0) {
             throw new IllegalArgumentException("DER data cannot be null or empty");
         }
-        
-        // Check cache first
-        String cacheKey = calculateSha256Hash(derData);
-        CachedCertificate cached = certificateCache.get(cacheKey);
-        if (cached != null && !cached.isExpired()) {
-            LOGGER.debug("Retrieved certificate from cache");
-            return cached.certificate;
-        }
-        
+
         try (ByteArrayInputStream inputStream = new ByteArrayInputStream(derData)) {
             X509Certificate certificate = (X509Certificate) certificateFactory.generateCertificate(inputStream);
-            
-            // Cache the certificate
-            certificateCache.put(cacheKey, new CachedCertificate(certificate));
-            
-            LOGGER.debug("Successfully parsed DER certificate: subject={}", certificate.getSubjectX500Principal().getName());
+            logger.debug("Successfully parsed DER certificate: subject={}", certificate.getSubjectX500Principal().getName());
             return certificate;
-            
         } catch (IOException e) {
             throw new CertificateException("Failed to parse DER certificate data", e);
         }
     }
-    
+
     /**
-     * Build certificate chain from endpoint certificate to root CA using peppol-commons
-     * 
-     * @param endpointCertificate The endpoint certificate
-     * @return List of certificates in the chain (endpoint to root)
-     * @throws CertificateException if chain building fails
-     */
-    @Nonnull
-    public List<X509Certificate> buildCertificateChain(@Nonnull X509Certificate endpointCertificate) 
-            throws CertificateException {
-        if (endpointCertificate == null) {
-            throw new IllegalArgumentException("Endpoint certificate cannot be null");
-        }
-        
-        // Check cache first
-        String cacheKey = calculateCertificateFingerprint(endpointCertificate, "SHA-256");
-        CachedCertificateChain cached = chainCache.get(cacheKey);
-        if (cached != null && !cached.isExpired()) {
-            LOGGER.debug("Retrieved certificate chain from cache");
-            return new ArrayList<>(cached.chain);
-        }
-        
-        List<X509Certificate> chain = new ArrayList<>();
-        chain.add(endpointCertificate);
-        
-        try {
-            // Use peppol-commons to check if this is a Peppol certificate
-            boolean isPeppolCert = isPeppolCertificate(endpointCertificate);
-            LOGGER.debug("Certificate Peppol compliance check: {}", isPeppolCert);
-            
-            // Build chain by following issuer relationships
-            X509Certificate currentCert = endpointCertificate;
-            int maxChainLength = 10; // Prevent infinite loops
-            int chainLength = 0;
-            
-            while (chainLength < maxChainLength && !isSelfSigned(currentCert)) {
-                X509Certificate issuerCert = findIssuerCertificate(currentCert);
-                if (issuerCert == null) {
-                    LOGGER.warn("Could not find issuer certificate for: {}", 
-                               currentCert.getSubjectX500Principal().getName());
-                    break;
-                }
-                
-                // Avoid circular chains
-                if (chain.contains(issuerCert)) {
-                    LOGGER.warn("Circular certificate chain detected, stopping chain building");
-                    break;
-                }
-                
-                chain.add(issuerCert);
-                currentCert = issuerCert;
-                chainLength++;
-            }
-            
-            // Cache the chain
-            chainCache.put(cacheKey, new CachedCertificateChain(chain));
-            
-            LOGGER.info("Built certificate chain with {} certificates", chain.size());
-            return chain;
-            
-        } catch (Exception e) {
-            throw new CertificateException("Failed to build certificate chain", e);
-        }
-    }
-    
-    /**
-     * Extract comprehensive certificate metadata
-     * 
+     * Extract essential certificate details for Peppol operations
+     *
      * @param certificate The certificate to analyze
-     * @return CertificateDetails with all metadata
+     * @return CertificateDetails with essential metadata
      */
     @Nonnull
     public CertificateDetails extractCertificateDetails(@Nonnull X509Certificate certificate) {
         if (certificate == null) {
             throw new IllegalArgumentException("Certificate cannot be null");
         }
-        
+
         CertificateDetails details = new CertificateDetails();
-        
+
         try {
             // Basic certificate information
             details.setSubject(certificate.getSubjectX500Principal().getName());
@@ -253,188 +121,44 @@ public class CertificateService {
             details.setNotBefore(certificate.getNotBefore().toInstant());
             details.setNotAfter(certificate.getNotAfter().toInstant());
             details.setVersion(certificate.getVersion());
-            
-            // Key and signature algorithms
+
+            // Key and signature information
             details.setKeyAlgorithm(certificate.getPublicKey().getAlgorithm());
             details.setKeyLength(extractKeyLength(certificate));
             details.setSignatureAlgorithm(certificate.getSigAlgName());
-            
-            // Fingerprints
-            details.setSha1Fingerprint(calculateCertificateFingerprint(certificate, "SHA-1"));
-            details.setSha256Fingerprint(calculateCertificateFingerprint(certificate, "SHA-256"));
-            
-            // Extensions
-            extractCertificateExtensions(certificate, details);
-            
-            // Peppol compliance check using peppol-commons
-            details.setPeppolCompliant(isPeppolCertificate(certificate));
-            
-            LOGGER.debug("Extracted certificate details for: {}", details.getSubject());
-            
-        } catch (Exception e) {
-            LOGGER.error("Error extracting certificate details", e);
-            // Return partial details rather than failing completely
-        }
-        
-        return details;
-    }
-    
-    /**
-     * Extract certificate extensions and populate details
-     */
-    private void extractCertificateExtensions(@Nonnull X509Certificate certificate, 
-                                            @Nonnull CertificateDetails details) {
-        try {
-            // Key Usage
+
+            // Certificate fingerprints
+            details.setSha1Fingerprint(calculateFingerprint(certificate, "SHA-1"));
+            details.setSha256Fingerprint(calculateFingerprint(certificate, "SHA-256"));
+
+            // Key usage information
             boolean[] keyUsage = certificate.getKeyUsage();
             if (keyUsage != null) {
                 details.setKeyUsage(parseKeyUsage(keyUsage));
             }
-            
-            // Extended Key Usage
+
+            // Extended key usage
             List<String> extKeyUsage = certificate.getExtendedKeyUsage();
             if (extKeyUsage != null) {
                 details.setExtendedKeyUsage(new ArrayList<>(extKeyUsage));
             }
-            
-            // Subject Alternative Names
-            Collection<List<?>> sanCollection = certificate.getSubjectAlternativeNames();
-            if (sanCollection != null) {
-                List<String> sanList = new ArrayList<>();
-                for (List<?> san : sanCollection) {
-                    if (san.size() >= 2) {
-                        sanList.add(san.get(1).toString());
-                    }
-                }
-                details.setSubjectAlternativeNames(sanList);
-            }
-            
-            // Process other extensions using BouncyCastle
-            extractBouncyCastleExtensions(certificate, details);
-            
+
+            // Subject Alternative Names (important for Peppol)
+            details.setSubjectAlternativeNames(extractSubjectAlternativeNames(certificate));
+
+            // Basic Peppol compliance check
+            details.setPeppolCompliant(isPeppolCertificate(certificate));
+
+            logger.debug("Extracted certificate details for: {}", details.getSubject());
+
         } catch (Exception e) {
-            LOGGER.warn("Error extracting certificate extensions", e);
+            logger.warn("Error extracting certificate details: {}", e.getMessage());
+            // Return partial details rather than failing completely
         }
+
+        return details;
     }
-    
-    /**
-     * Extract extensions using BouncyCastle for more detailed parsing
-     */
-    private void extractBouncyCastleExtensions(@Nonnull X509Certificate certificate, 
-                                             @Nonnull CertificateDetails details) {
-        try {
-            // Authority Key Identifier
-            byte[] akiBytes = certificate.getExtensionValue(Extension.authorityKeyIdentifier.getId());
-            if (akiBytes != null) {
-                AuthorityKeyIdentifier aki = AuthorityKeyIdentifier.getInstance(
-                    ASN1OctetString.getInstance(akiBytes).getOctets());
-                if (aki.getKeyIdentifier() != null) {
-                    details.setAuthorityKeyIdentifier(Hex.toHexString(aki.getKeyIdentifier()).toUpperCase());
-                }
-            }
-            
-            // Subject Key Identifier
-            byte[] skiBytes = certificate.getExtensionValue(Extension.subjectKeyIdentifier.getId());
-            if (skiBytes != null) {
-                SubjectKeyIdentifier ski = SubjectKeyIdentifier.getInstance(
-                    ASN1OctetString.getInstance(skiBytes).getOctets());
-                details.setSubjectKeyIdentifier(Hex.toHexString(ski.getKeyIdentifier()).toUpperCase());
-            }
-            
-            // Basic Constraints
-            byte[] bcBytes = certificate.getExtensionValue(Extension.basicConstraints.getId());
-            if (bcBytes != null) {
-                BasicConstraints bc = BasicConstraints.getInstance(
-                    ASN1OctetString.getInstance(bcBytes).getOctets());
-                details.setBasicConstraints(bc.toString());
-            }
-            
-            // CRL Distribution Points
-            byte[] crlDpBytes = certificate.getExtensionValue(Extension.cRLDistributionPoints.getId());
-            if (crlDpBytes != null) {
-                details.setCrlDistributionPoints(extractCrlDistributionPoints(crlDpBytes));
-            }
-            
-            // Certificate Policies
-            byte[] cpBytes = certificate.getExtensionValue(Extension.certificatePolicies.getId());
-            if (cpBytes != null) {
-                details.setCertificatePolicies(extractCertificatePolicies(cpBytes));
-            }
-            
-        } catch (Exception e) {
-            LOGGER.warn("Error extracting BouncyCastle extensions", e);
-        }
-    }
-    
-    /**
-     * Extract CRL Distribution Points from extension bytes
-     */
-    @Nonnull
-    private List<String> extractCrlDistributionPoints(@Nonnull byte[] extensionBytes) {
-        List<String> crlUrls = new ArrayList<>();
-        try {
-            CRLDistPoint crlDistPoint = CRLDistPoint.getInstance(
-                ASN1OctetString.getInstance(extensionBytes).getOctets());
-            
-            for (DistributionPoint dp : crlDistPoint.getDistributionPoints()) {
-                DistributionPointName dpn = dp.getDistributionPoint();
-                if (dpn != null && dpn.getType() == DistributionPointName.FULL_NAME) {
-                    GeneralNames generalNames = (GeneralNames) dpn.getName();
-                    for (GeneralName gn : generalNames.getNames()) {
-                        if (gn.getTagNo() == GeneralName.uniformResourceIdentifier) {
-                            crlUrls.add(gn.getName().toString());
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            LOGGER.warn("Error extracting CRL distribution points", e);
-        }
-        return crlUrls;
-    }
-    
-    /**
-     * Extract Certificate Policies from extension bytes
-     */
-    @Nonnull
-    private List<String> extractCertificatePolicies(@Nonnull byte[] extensionBytes) {
-        List<String> policies = new ArrayList<>();
-        try {
-            ASN1Sequence seq = ASN1Sequence.getInstance(
-                ASN1OctetString.getInstance(extensionBytes).getOctets());
-            
-            for (int i = 0; i < seq.size(); i++) {
-                ASN1Sequence policySeq = ASN1Sequence.getInstance(seq.getObjectAt(i));
-                if (policySeq.size() > 0) {
-                    policies.add(policySeq.getObjectAt(0).toString());
-                }
-            }
-        } catch (Exception e) {
-            LOGGER.warn("Error extracting certificate policies", e);
-        }
-        return policies;
-    }
-    
-    /**
-     * Parse key usage boolean array to string list
-     */
-    @Nonnull
-    private List<String> parseKeyUsage(@Nonnull boolean[] keyUsage) {
-        List<String> usages = new ArrayList<>();
-        String[] keyUsageNames = {
-            "Digital Signature", "Non Repudiation", "Key Encipherment", "Data Encipherment",
-            "Key Agreement", "Key Cert Sign", "CRL Sign", "Encipher Only", "Decipher Only"
-        };
-        
-        for (int i = 0; i < keyUsage.length && i < keyUsageNames.length; i++) {
-            if (keyUsage[i]) {
-                usages.add(keyUsageNames[i]);
-            }
-        }
-        
-        return usages;
-    }
-    
+
     /**
      * Extract key length from certificate public key
      */
@@ -442,42 +166,170 @@ public class CertificateService {
     private Integer extractKeyLength(@Nonnull X509Certificate certificate) {
         try {
             String algorithm = certificate.getPublicKey().getAlgorithm();
+
             if ("RSA".equals(algorithm)) {
-                // For RSA keys, we can extract the modulus length
-                java.security.interfaces.RSAPublicKey rsaKey = 
-                    (java.security.interfaces.RSAPublicKey) certificate.getPublicKey();
+                java.security.interfaces.RSAPublicKey rsaKey =
+                        (java.security.interfaces.RSAPublicKey) certificate.getPublicKey();
                 return rsaKey.getModulus().bitLength();
             } else if ("EC".equals(algorithm)) {
-                // For EC keys, extract curve size
-                java.security.interfaces.ECPublicKey ecKey = 
-                    (java.security.interfaces.ECPublicKey) certificate.getPublicKey();
+                java.security.interfaces.ECPublicKey ecKey =
+                        (java.security.interfaces.ECPublicKey) certificate.getPublicKey();
                 return ecKey.getParams().getCurve().getField().getFieldSize();
+            } else if ("DSA".equals(algorithm)) {
+                java.security.interfaces.DSAPublicKey dsaKey =
+                        (java.security.interfaces.DSAPublicKey) certificate.getPublicKey();
+                return dsaKey.getParams().getP().bitLength();
             }
+
         } catch (Exception e) {
-            LOGGER.warn("Could not extract key length for algorithm: {}", 
-                       certificate.getPublicKey().getAlgorithm(), e);
+            logger.debug("Could not extract key length for algorithm: {}",
+                    certificate.getPublicKey().getAlgorithm());
         }
+
         return null;
     }
-    
+
     /**
      * Calculate certificate fingerprint using specified algorithm
      */
     @Nonnull
-    private String calculateCertificateFingerprint(@Nonnull X509Certificate certificate, 
-                                                  @Nonnull String algorithm) {
+    private String calculateFingerprint(@Nonnull X509Certificate certificate, @Nonnull String algorithm) {
         try {
             MessageDigest md = MessageDigest.getInstance(algorithm);
             byte[] digest = md.digest(certificate.getEncoded());
             return Hex.toHexString(digest).toUpperCase();
         } catch (Exception e) {
-            LOGGER.error("Failed to calculate {} fingerprint", algorithm, e);
+            logger.warn("Failed to calculate {} fingerprint: {}", algorithm, e.getMessage());
             return "";
         }
     }
-    
+
     /**
-     * Calculate SHA-256 hash of byte array
+     * Parse key usage boolean array to human-readable list
+     */
+    @Nonnull
+    private List<String> parseKeyUsage(@Nonnull boolean[] keyUsage) {
+        List<String> usages = new ArrayList<>();
+
+        String[] keyUsageNames = {
+                "Digital Signature",    // 0
+                "Non Repudiation",      // 1
+                "Key Encipherment",     // 2
+                "Data Encipherment",    // 3
+                "Key Agreement",        // 4
+                "Key Cert Sign",        // 5
+                "CRL Sign",             // 6
+                "Encipher Only",        // 7
+                "Decipher Only"         // 8
+        };
+
+        for (int i = 0; i < keyUsage.length && i < keyUsageNames.length; i++) {
+            if (keyUsage[i]) {
+                usages.add(keyUsageNames[i]);
+            }
+        }
+
+        return usages;
+    }
+
+    /**
+     * Extract Subject Alternative Names from certificate
+     */
+    @Nonnull
+    private List<String> extractSubjectAlternativeNames(@Nonnull X509Certificate certificate) {
+        List<String> sanList = new ArrayList<>();
+
+        try {
+            Collection<List<?>> sanCollection = certificate.getSubjectAlternativeNames();
+            if (sanCollection != null) {
+                for (List<?> san : sanCollection) {
+                    if (san.size() >= 2) {
+                        // Format: [type, value]
+                        Integer type = (Integer) san.get(0);
+                        String value = san.get(1).toString();
+
+                        // Add type prefix for clarity
+                        String typePrefix = switch (type) {
+                            case 1 -> "email:";
+                            case 2 -> "dns:";
+                            case 4 -> "dn:";
+                            case 6 -> "uri:";
+                            case 7 -> "ip:";
+                            default -> "other(" + type + "):";
+                        };
+
+                        sanList.add(typePrefix + value);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Error extracting Subject Alternative Names: {}", e.getMessage());
+        }
+
+        return sanList;
+    }
+
+    /**
+     * Simple Peppol certificate compliance check
+     * This is a basic check - in production you'd want more sophisticated validation
+     */
+    private boolean isPeppolCertificate(@Nonnull X509Certificate certificate) {
+        try {
+            String issuerDN = certificate.getIssuerX500Principal().getName();
+            String subjectDN = certificate.getSubjectX500Principal().getName();
+
+            // Check for known Peppol CA patterns in issuer
+            boolean hasKnownIssuer = issuerDN.toLowerCase().contains("peppol") ||
+                    issuerDN.toLowerCase().contains("openpeppol") ||
+                    issuerDN.toLowerCase().contains("openpeppol test ca") ||
+                    issuerDN.toLowerCase().contains("openpeppol production ca");
+
+            // Check for Peppol participant identifier in subject
+            boolean hasParticipantId = subjectDN.toLowerCase().contains("serialnumber=") &&
+                    (subjectDN.contains("::") || subjectDN.contains("iso6523-actorid-upis"));
+
+            // Check validity period (Peppol certificates are typically short-lived)
+            long validityPeriodDays = (certificate.getNotAfter().getTime() -
+                    certificate.getNotBefore().getTime()) / (24 * 60 * 60 * 1000);
+            boolean reasonableValidityPeriod = validityPeriodDays <= (5 * 365); // Max 5 years
+
+            boolean isPeppol = hasKnownIssuer && hasParticipantId && reasonableValidityPeriod;
+
+            logger.debug("Peppol compliance check: issuer={}, participant={}, validity={}, overall={}",
+                    hasKnownIssuer, hasParticipantId, reasonableValidityPeriod, isPeppol);
+
+            return isPeppol;
+
+        } catch (Exception e) {
+            logger.warn("Error checking Peppol certificate compliance: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Check if certificate is currently valid (not expired and not not-yet-valid)
+     */
+    public boolean isCurrentlyValid(@Nonnull X509Certificate certificate) {
+        try {
+            certificate.checkValidity();
+            return true;
+        } catch (Exception e) {
+            logger.debug("Certificate validity check failed: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Get days until certificate expiration (negative if already expired)
+     */
+    public long getDaysUntilExpiration(@Nonnull X509Certificate certificate) {
+        long now = System.currentTimeMillis();
+        long expiryTime = certificate.getNotAfter().getTime();
+        return (expiryTime - now) / (24 * 60 * 60 * 1000);
+    }
+
+    /**
+     * Calculate SHA-256 hash of byte array for internal use
      */
     @Nonnull
     private String calculateSha256Hash(@Nonnull byte[] data) {
@@ -487,122 +339,6 @@ public class CertificateService {
             return Hex.toHexString(digest);
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException("SHA-256 algorithm not available", e);
-        }
-    }
-    
-    /**
-     * Check if certificate is self-signed
-     */
-    private boolean isSelfSigned(@Nonnull X509Certificate certificate) {
-        return certificate.getSubjectX500Principal().equals(certificate.getIssuerX500Principal());
-    }
-    
-    /**
-     * Find issuer certificate for the given certificate
-     * This is a simplified implementation - in production, this would query
-     * certificate stores, LDAP directories, or other certificate sources
-     */
-    @Nullable
-    private X509Certificate findIssuerCertificate(@Nonnull X509Certificate certificate) {
-        // This is a placeholder implementation
-        // In a real implementation, this would:
-        // 1. Check local certificate store
-        // 2. Query LDAP directories
-        // 3. Download from Authority Information Access URLs
-        // 4. Use peppol-commons certificate stores for Peppol certificates
-        
-        LOGGER.debug("Issuer certificate lookup not implemented for: {}", 
-                    certificate.getIssuerX500Principal().getName());
-        return null;
-    }
-    
-    /**
-     * Check if certificate is a Peppol certificate using peppol-commons trust stores
-     */
-    private boolean isPeppolCertificate(@Nonnull X509Certificate certificate) {
-        try {
-            // Check if certificate is issued by a known Peppol CA
-            // This is a simplified check - in production, you would do full chain validation
-            String issuerDN = certificate.getIssuerX500Principal().getName();
-            
-            // Check against known Peppol CA patterns
-            return issuerDN.contains("PEPPOL") || 
-                   issuerDN.contains("OpenPEPPOL") ||
-                   issuerDN.contains("peppol") ||
-                   isIssuedByPeppolTrustStore(certificate);
-        } catch (Exception e) {
-            LOGGER.warn("Error checking Peppol certificate compliance", e);
-            return false;
-        }
-    }
-    
-    /**
-     * Check if certificate is issued by a CA in the Peppol trust store
-     */
-    private boolean isIssuedByPeppolTrustStore(@Nonnull X509Certificate certificate) {
-        try {
-            // Use peppol-commons trust store constants to validate
-            // This is a simplified implementation that checks if trust store is available
-            String trustStorePath = PeppolTrustStores.TRUSTSTORE_COMPLETE_CLASSPATH;
-            return trustStorePath != null && !trustStorePath.isEmpty();
-        } catch (Exception e) {
-            LOGGER.debug("Could not access Peppol trust store", e);
-            return false;
-        }
-    }
-    
-    /**
-     * Clear expired entries from caches
-     */
-    public void cleanupCaches() {
-        int cleaned = 0;
-        
-        // Clean certificate cache
-        int certSizeBefore = certificateCache.size();
-        certificateCache.entrySet().removeIf(entry -> entry.getValue().isExpired());
-        int certSizeAfter = certificateCache.size();
-        cleaned += (certSizeBefore - certSizeAfter);
-        
-        // Clean chain cache
-        int chainSizeBefore = chainCache.size();
-        chainCache.entrySet().removeIf(entry -> entry.getValue().isExpired());
-        int chainSizeAfter = chainCache.size();
-        cleaned += (chainSizeBefore - chainSizeAfter);
-        
-        if (cleaned > 0) {
-            LOGGER.debug("Cleaned {} expired cache entries", cleaned);
-        }
-    }
-    
-    /**
-     * Get cache statistics for monitoring
-     */
-    public CacheStats getCacheStats() {
-        return new CacheStats(
-            certificateCache.size(),
-            chainCache.size(),
-            CACHE_TTL_MS
-        );
-    }
-    
-    /**
-     * Cache statistics for monitoring
-     */
-    public static class CacheStats {
-        public final int certificateCacheSize;
-        public final int chainCacheSize;
-        public final long cacheTtlMs;
-        
-        public CacheStats(int certificateCacheSize, int chainCacheSize, long cacheTtlMs) {
-            this.certificateCacheSize = certificateCacheSize;
-            this.chainCacheSize = chainCacheSize;
-            this.cacheTtlMs = cacheTtlMs;
-        }
-        
-        @Override
-        public String toString() {
-            return String.format("CacheStats{certificates=%d, chains=%d, ttl=%dms}", 
-                               certificateCacheSize, chainCacheSize, cacheTtlMs);
         }
     }
 }
