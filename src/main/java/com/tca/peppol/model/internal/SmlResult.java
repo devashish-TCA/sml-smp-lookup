@@ -22,22 +22,23 @@ public class SmlResult {
     // Default constructor
     public SmlResult() {}
 
-    // Constructor for successful result
-    public SmlResult(String smpUrl, String dnsQuery, String md5Hash, long resolutionTimeMs) {
+    // Private constructor
+    private SmlResult(String smpUrl, String dnsQuery, String md5Hash,
+                      String errorMessage, boolean successful) {
         this.smpUrl = smpUrl;
         this.dnsQuery = dnsQuery;
         this.md5Hash = md5Hash;
-        this.resolutionTimeMs = resolutionTimeMs;
-        this.successful = true;
+        this.errorMessage = errorMessage;
+        this.successful = successful;
     }
 
-    // Constructor for failed result
-    public SmlResult(String dnsQuery, String md5Hash, long resolutionTimeMs, String errorMessage) {
-        this.dnsQuery = dnsQuery;
-        this.md5Hash = md5Hash;
-        this.resolutionTimeMs = resolutionTimeMs;
-        this.errorMessage = errorMessage;
-        this.successful = false;
+    // Static factory methods with clear names
+    public static SmlResult success(String smpUrl, String dnsQuery, String md5Hash) {
+        return new SmlResult(smpUrl, dnsQuery, md5Hash, null, true);
+    }
+
+    public static SmlResult failure(String dnsQuery, String md5Hash, String errorMessage) {
+        return new SmlResult(null, dnsQuery, md5Hash, errorMessage, false);
     }
 
     // Getters and setters
@@ -130,19 +131,19 @@ public class SmlResult {
         return smpUrl.endsWith("/") ? smpUrl.substring(0, smpUrl.length() - 1) : smpUrl;
     }
 
-    /**
-     * Create a successful SML result
-     */
-    public static SmlResult success(String smpUrl, String dnsQuery, String md5Hash, long resolutionTimeMs) {
-        return new SmlResult(smpUrl, dnsQuery, md5Hash, resolutionTimeMs);
-    }
-
-    /**
-     * Create a failed SML result
-     */
-    public static SmlResult failure(String dnsQuery, String md5Hash, long resolutionTimeMs, String errorMessage) {
-        return new SmlResult(dnsQuery, md5Hash, resolutionTimeMs, errorMessage);
-    }
+//    /**
+//     * Create a successful SML result
+//     */
+//    public static SmlResult success(String smpUrl, String dnsQuery, String md5Hash) {
+//        return new SmlResult(smpUrl, dnsQuery, md5Hash);
+//    }
+//
+//    /**
+//     * Create a failed SML result
+//     */
+//    public static SmlResult failure(String dnsQuery, String md5Hash, String errorMessage) {
+//        return new SmlResult(dnsQuery, md5Hash, errorMessage);
+//    }
 
     /**
      * Create a builder for SmlResult

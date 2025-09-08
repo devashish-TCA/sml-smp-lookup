@@ -1,7 +1,6 @@
 package com.tca.peppol.validation;
 
 import com.tca.peppol.model.request.LookupRequest;
-import com.tca.peppol.util.CorrelationIdUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -23,7 +22,6 @@ class RequestValidatorTest {
     @BeforeEach
     void setUp() {
         validator = new RequestValidator();
-        CorrelationIdUtils.setCorrelationId("test-correlation-id");
         
         // Create a valid request for testing
         validRequest = new LookupRequest();

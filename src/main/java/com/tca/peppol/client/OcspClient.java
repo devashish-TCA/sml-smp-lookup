@@ -58,7 +58,7 @@ public class OcspClient {
             throw new RuntimeException("Failed to initialize OCSP digest calculator provider", e);
         }
     }
-    
+
     /**
      * Check the revocation status of a certificate using OCSP.
      * 

@@ -1,11 +1,11 @@
 package com.tca.peppol.service;
 
 import com.tca.peppol.model.internal.SmlResult;
-import com.tca.peppol.util.StructuredLogger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xbill.DNS.*;
 
+import javax.annotation.Nonnull;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -48,6 +48,7 @@ public class SmlLookupService {
      * @return SmlResult containing the resolved SMP URL and lookup details
      */
     public SmlResult lookupSmp(String participantId, String environment) {
+        // Validate input parameters
         if (participantId == null || participantId.trim().isEmpty()) {
             throw new IllegalArgumentException("Participant ID cannot be null or empty");
         }
@@ -55,76 +56,39 @@ public class SmlLookupService {
             throw new IllegalArgumentException("Environment cannot be null or empty");
         }
 
-        long startTime = System.currentTimeMillis();
         String smlDomain = getSmlDomain(environment);
         
-        // Log SML lookup start with structured logging
-        Map<String, Object> lookupDetails = new HashMap<>();
-        lookupDetails.put("participantId", participantId);
-        lookupDetails.put("environment", environment);
-        lookupDetails.put("smlDomain", smlDomain);
-        
-        StructuredLogger.logBusinessEvent("SML lookup started", lookupDetails);
+        // Log SML lookup start
+        logger.info("SML lookup started for participant: {}, environment: {}, domain: {}",
+                hashParticipantId(participantId), environment, smlDomain);
 
         try {
             // Step 1: Calculate MD5 hash (NOT SHA-256 as per Peppol specification)
             String md5Hash = calculateMd5Hash(participantId);
-            
-            Map<String, Object> hashDetails = new HashMap<>();
-            hashDetails.put("participantId", participantId);
-            hashDetails.put("hashAlgorithm", "MD5");
-            hashDetails.put("hashLength", md5Hash.length());
-            
-            StructuredLogger.logEvent(StructuredLogger.EventType.SYSTEM_EVENT, 
-                    StructuredLogger.Level.DEBUG, "MD5 hash calculated", hashDetails);
+
+            logger.debug("MD5 hash calculated for participant: {}, algorithm: MD5, length: {}",
+                    hashParticipantId(participantId), md5Hash.length());
 
             // Step 2: Construct DNS query
             String dnsQuery = constructDnsQuery(md5Hash, DEFAULT_SCHEME, smlDomain);
-            
-            Map<String, Object> dnsDetails = new HashMap<>();
-            dnsDetails.put("participantId", participantId);
-            dnsDetails.put("dnsQuery", dnsQuery);
-            dnsDetails.put("scheme", DEFAULT_SCHEME);
-            
-            StructuredLogger.logEvent(StructuredLogger.EventType.SYSTEM_EVENT, 
-                    StructuredLogger.Level.DEBUG, "DNS query constructed", dnsDetails);
 
-            // Step 3: Perform DNS resolution with retry logic and X-Ray tracing
-            long dnsStartTime = System.currentTimeMillis();
-            String smpUrl = performDnsLookupWithRetry(dnsQuery);
-            long dnsTime = System.currentTimeMillis() - dnsStartTime;
-            
-            // Log DNS resolution performance
-            Map<String, Object> dnsPerf = new HashMap<>();
-            dnsPerf.put("participantId", participantId);
-            dnsPerf.put("dnsQuery", dnsQuery);
-            dnsPerf.put("successful", smpUrl != null);
-            
-            StructuredLogger.logPerformanceMetric("DNS resolution", dnsTime, dnsPerf);
-            
-            long resolutionTime = System.currentTimeMillis() - startTime;
-            
+            logger.debug("DNS query constructed for participant: {}, query: {}, scheme: {}",
+                    hashParticipantId(participantId), dnsQuery, DEFAULT_SCHEME);
+
+            // Step 3: Perform DNS resolution
+            String smpUrl = performDnsLookup(dnsQuery);
+
             if (smpUrl != null) {
-                Map<String, Object> successDetails = new HashMap<>();
-                successDetails.put("participantId", participantId);
-                successDetails.put("smpUrl", smpUrl);
-                successDetails.put("resolutionTimeMs", resolutionTime);
+                logger.info("SML lookup successful for participant: {}, SMP URL: {}",
+                        hashParticipantId(participantId), smpUrl);
                 
-                StructuredLogger.logBusinessEvent("SML lookup successful", successDetails);
-                
-                SmlResult result = SmlResult.success(smpUrl, dnsQuery, md5Hash, resolutionTime);
+                SmlResult result = SmlResult.success(smpUrl, dnsQuery, md5Hash);
                 
                 // Attempt DNSSEC validation if available
                 try {
                     boolean dnssecValid = validateDnssec(dnsQuery);
                     result.setDnssecValid(dnssecValid);
-                    
-                    Map<String, Object> dnssecDetails = new HashMap<>();
-                    dnssecDetails.put("participantId", participantId);
-                    dnssecDetails.put("dnsQuery", dnsQuery);
-                    dnssecDetails.put("dnssecValid", dnssecValid);
-                    
-                    StructuredLogger.logValidationEvent("DNSSEC validation", dnssecValid, dnssecDetails);
+
                     logger.debug("DNSSEC validation result for {}: {}", dnsQuery, dnssecValid);
                 } catch (Exception e) {
                     logger.warn("DNSSEC validation failed for {}: {}", dnsQuery, e.getMessage());
@@ -133,17 +97,15 @@ public class SmlLookupService {
                 
                 return result;
             } else {
-                long resolutionTimeMs = System.currentTimeMillis() - startTime;
                 String errorMessage = "DNS resolution failed after " + MAX_RETRY_ATTEMPTS + " attempts";
                 logger.error("SML lookup failed for participant {}: {}", participantId, errorMessage);
-                return SmlResult.failure(dnsQuery, md5Hash, resolutionTimeMs, errorMessage);
+                return SmlResult.failure(dnsQuery, md5Hash, errorMessage);
             }
 
         } catch (Exception e) {
-            long resolutionTime = System.currentTimeMillis() - startTime;
             String errorMessage = "SML lookup error: " + e.getMessage();
             logger.error("SML lookup failed for participant {}: {}", participantId, errorMessage, e);
-            return SmlResult.failure("", "", resolutionTime, errorMessage);
+            return SmlResult.failure("", "",  errorMessage);
         }
     }
 
@@ -208,7 +170,7 @@ public class SmlLookupService {
      * @param dnsQuery The DNS query to resolve
      * @return The resolved SMP URL or null if resolution failed
      */
-    private String performDnsLookupWithRetry(String dnsQuery) {
+    private String performDnsLookup(String dnsQuery) {
         List<String> intermediateResults = new ArrayList<>();
         
         for (int attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
@@ -337,6 +299,10 @@ public class SmlLookupService {
      * @return The SML domain for the specified environment
      */
     private String getSmlDomain(String environment) {
+        if (environment == null) {
+            throw new IllegalArgumentException("Environment cannot be null or empty");
+        }
+        
         switch (environment.toLowerCase()) {
             case "production":
                 return PRODUCTION_SML_DOMAIN;
@@ -345,6 +311,19 @@ public class SmlLookupService {
             default:
                 throw new IllegalArgumentException("Invalid environment: " + environment + 
                     ". Must be 'production' or 'test'");
+        }
+    }
+    /**
+     * Hash participant ID for privacy-conscious logging
+     */
+    @Nonnull
+    private String hashParticipantId(@Nonnull String participantId) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(participantId.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.Base64.getEncoder().encodeToString(hash).substring(0, 8);
+        } catch (Exception e) {
+            return "HASH_ERROR";
         }
     }
 

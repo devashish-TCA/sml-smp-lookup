@@ -67,7 +67,7 @@ public class CertificateValidator {
      * @return ValidationResults containing detailed validation status
      */
     @Nonnull
-    public ValidationResults validateCertificateChain(@Nonnull final List<X509Certificate> certificateChain,
+    public ValidationResults validateCertificateChain(@Nullable final List<X509Certificate> certificateChain,
                                                      @Nullable final Set<TrustAnchor> trustAnchors) {
         if (certificateChain == null || certificateChain.isEmpty()) {
             LOGGER.warn("Certificate chain is null or empty");
@@ -191,7 +191,7 @@ public class CertificateValidator {
                 return validateChainSignatures(certificateChain);
             }
 
-            // Use Java's built-in certificate path validation
+            // Using Java's built-in certificate path validation
             final CertPathValidator validator = CertPathValidator.getInstance("PKIX");
             final CertificateFactory certFactory = CertificateFactory.getInstance("X.509");
             final CertPath certPath = certFactory.generateCertPath(certificateChain);
@@ -218,11 +218,34 @@ public class CertificateValidator {
      */
     private boolean validateChainSignatures(@Nonnull final List<X509Certificate> certificateChain) {
         try {
+            // Handle single certificate case
+            if (certificateChain.size() == 1) {
+                final X509Certificate cert = certificateChain.get(0);
+
+                // Check if it's self-signed
+                if (cert.getSubjectX500Principal().equals(cert.getIssuerX500Principal())) {
+                    try {
+                        cert.verify(cert.getPublicKey()); // Verify self-signature
+                        LOGGER.debug("Self-signed certificate validated successfully");
+                        return true;
+                    } catch (final Exception e) {
+                        LOGGER.warn("Self-signed certificate signature validation failed", e);
+                        return false;
+                    }
+                } else {
+                    LOGGER.warn("Single certificate in chain is not self-signed - incomplete chain");
+                    return false; // or true, depending on your requirements
+                }
+            }
+
+
+            // The code assumes leaf-to-root ordering (cert[0] = end-entity, cert[n-1] = root)
             for (int i = 0; i < certificateChain.size() - 1; i++) {
                 final X509Certificate current = certificateChain.get(i);
                 final X509Certificate issuer = certificateChain.get(i + 1);
 
                 // Verify that the issuer's subject matches the current certificate's issuer
+
                 if (!issuer.getSubjectX500Principal().equals(current.getIssuerX500Principal())) {
                     LOGGER.warn("Certificate chain broken: issuer mismatch at position {}", i);
                     return false;
@@ -261,11 +284,10 @@ public class CertificateValidator {
                 return true;
             }
 
-            // For other key types, use a more generic approach
+            // For other key types, For now accept other key types but log them
             final String algorithm = publicKey.getAlgorithm();
             LOGGER.debug("Certificate uses {} key algorithm", algorithm);
-            
-            // For now, accept other key types but log them
+
             return true;
 
         } catch (final Exception e) {

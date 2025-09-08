@@ -66,8 +66,7 @@ public class SmpQueryService {
                              @Nonnull String participantId,
                              @Nonnull String documentTypeId,
                              @Nonnull String processId) throws SMPClientException {
-        
-        long startTime = System.currentTimeMillis();
+
         logger.info("Starting SMP query for participant: {} at SMP: {}", 
                    hashParticipantId(participantId), smpUrl);
         
@@ -81,7 +80,16 @@ public class SmpQueryService {
                 .createProcessIdentifierWithDefaultScheme(processId);
             
             // Construct SMP URL as specified: {smpUrl}/{participantId}/services/{documentTypeId}
-            String requestUrl = constructSmpUrl(smpUrl, participantId, documentTypeId);
+//            String requestUrl = constructSmpUrl(smpUrl, participantId, documentTypeId);
+            if (peppolParticipantId == null) {
+                throw new SMPClientException("Failed to parse participant identifier");
+            }
+            if (peppolDocumentTypeId == null) {
+                throw new SMPClientException("Failed to parse document type identifier");
+            }
+
+            String requestUrl = constructSmpUrl(smpUrl, peppolParticipantId.getURIEncoded(),
+                    peppolDocumentTypeId.getURIEncoded());
             
             // Set appropriate HTTP headers
             Map<String, String> headers = new HashMap<>();
@@ -90,7 +98,7 @@ public class SmpQueryService {
             
             logger.debug("Making SMP request to: {}", requestUrl);
             
-            // Make HTTP request to SMP with X-Ray tracing
+            // Make HTTP request to SMP
             HttpResponse httpResponse = httpClient.get(requestUrl, headers);
             
             if (httpResponse.getStatusCode() != 200) {
@@ -113,11 +121,9 @@ public class SmpQueryService {
             Instant serviceActivationDate = extractServiceActivationDate(xmlDocument, processId);
             Instant serviceExpirationDate = extractServiceExpirationDate(xmlDocument, processId);
             String xmlSignature = extractXmlSignature(xmlDocument);
+
             
-            long queryTime = System.currentTimeMillis() - startTime;
-            
-            logger.info("SMP query completed successfully in {}ms for participant: {}", 
-                       queryTime, hashParticipantId(participantId));
+            logger.info("SMP query completed successfully for participant: {}", hashParticipantId(participantId));
             
             return SmpResult.builder()
                 .endpointUrl(endpointUrl)
@@ -127,7 +133,6 @@ public class SmpQueryService {
                 .serviceExpirationDate(serviceExpirationDate)
                 .xmlDocument(xmlDocument)
                 .xmlSignature(xmlSignature)
-                .queryTimeMs(queryTime)
                 .successful(true)
                 .participantId(participantId)
                 .documentTypeId(documentTypeId)

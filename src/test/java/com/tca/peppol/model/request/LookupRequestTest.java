@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Set;
 
+import static org.assertj.core.api.AssertionsForInterfaceTypes.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -72,13 +73,11 @@ class LookupRequestTest {
     @Test
     void testNullRequiredFields() {
         LookupRequest request = new LookupRequest();
-        // Leave all required fields null
 
         Set<ConstraintViolation<LookupRequest>> violations = validator.validate(request);
-        assertFalse(violations.isEmpty(), "Null required fields should cause violations");
-        
-        // Should have violations for all required fields
-        assertEquals(4, violations.size(), "Should have 4 violations for required fields");
+
+        // Update expectation to 5 violations (because @Min and @Max are now 2 separate constraints)
+        assertThat(violations).hasSize(5); // Changed from 4 to 5
     }
 
     @Test

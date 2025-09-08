@@ -8,8 +8,6 @@ import com.helger.peppolid.peppol.doctype.EPredefinedDocumentTypeIdentifier;
 import com.helger.peppolid.peppol.process.EPredefinedProcessIdentifier;
 import com.tca.peppol.exception.ErrorCodes;
 import com.tca.peppol.model.request.LookupRequest;
-import com.tca.peppol.util.StructuredLogger;
-import com.tca.peppol.util.CorrelationIdUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -70,15 +68,10 @@ public class RequestValidator {
      * @return RequestValidationResult containing validation status and any errors
      */
     public RequestValidationResult validateRequest(LookupRequest request) {
-        String correlationId = CorrelationIdUtils.getCorrelationId();
-        
-        Map<String, Object> logDetails = new HashMap<>();
-        logDetails.put("correlationId", correlationId);
-        if (request != null && request.getParticipantId() != null) {
-            logDetails.put("participantId", request.getParticipantId());
-        }
-        
-        StructuredLogger.logValidationEvent("request_validation_start", true, logDetails);
+
+        logger.info("Request validation start: participantId={}",
+
+                request != null ? request.getParticipantId() : "unknown");
         
         List<String> errors = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
@@ -97,21 +90,14 @@ public class RequestValidator {
             validateEnvironmentConfiguration(request, errors);
             
             boolean isValid = errors.isEmpty();
-            
-            Map<String, Object> completionDetails = new HashMap<>();
-            completionDetails.put("correlationId", correlationId);
-            completionDetails.put("isValid", isValid);
-            completionDetails.put("errorCount", errors.size());
-            completionDetails.put("warningCount", warnings.size());
-            
-            StructuredLogger.logValidationEvent("request_validation_completed", isValid, completionDetails);
+
+            logger.info("Request validation completed: isValid={}, errorCount={}, warningCount={}",
+                    isValid, errors.size(), warnings.size());
             
             return new RequestValidationResult(isValid, errors, warnings);
             
         } catch (Exception e) {
-            Map<String, Object> errorDetails = new HashMap<>();
-            errorDetails.put("correlationId", correlationId);
-            StructuredLogger.logError("Unexpected error during request validation", e, errorDetails);
+            logger.error("Unexpected error during request validation", e);
             
             errors.add(ErrorCodes.E7001 + ": Validation failed due to internal error");
             return new RequestValidationResult(false, errors, warnings);
